@@ -3,15 +3,21 @@ package main
 import (
 	"fmt"
 	"io"
-	_ "io"
 	"log"
 	"os"
-	_ "path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-
 )
+
+type FileTreeLeaf struct {
+	fileName  string
+	fileSize  string
+	isDir     bool
+	isLast    bool
+	lastLevel int
+	level     int
+}
 
 func main() {
 	out := os.Stdout
@@ -31,67 +37,71 @@ func dirTree(out io.Writer, path string, printFiles bool) error {
 	return nil
 }
 
-func scanDir(out io.Writer, path string, printFiles bool, level int, isLastDir int) error {
+func scanDir(out io.Writer, path string, printFiles bool, level int, lastLavel int) error {
 	file, err := os.Open(path)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	FileTree := make([]FileTreeLeaf, 0)
+
 	files, _ := file.Readdir(0)
 
-
-
-	sort.SliceStable(files, func(i, j int) bool {
-		return files[i].Name() < files[j].Name()
-	})
-
-	var isLastElem bool = false
-
-	for num, f := range files {
-		if printFiles || f.IsDir() {
-			var len = len(files)
-			isLastElem = isLast(num, len)
-			var sym string = "├───";
-			if isLastElem {
-				sym = "└───"
-			}
-
-			var repeatSym string = strings.Repeat("│\t", level);
-			if (isLastDir > 0) {
-				repeatSym =  strings.Repeat("│\t", level - isLastDir) + strings.Repeat("\t", isLastDir);
-			}
-
-			var size = "";
-			if (!f.IsDir()) {
-				size = " (" + formatSize(f.Size()) + ")"
-			}
-
-			fmt.Fprintln(out, repeatSym + sym + f.Name() + size)
+	for _, f := range files {
+		if !f.IsDir() && !printFiles {
+			continue
 		}
 
-		if (f.IsDir()) {
-			if (isLastElem) {
-				isLastDir++
+		var leaf = FileTreeLeaf{
+			fileName:  f.Name(),
+			fileSize:  formatSize(f),
+			isDir:     f.IsDir(),
+			isLast:    false,
+			lastLevel: lastLavel,
+			level:     level,
+		}
+
+		FileTree = append(FileTree, leaf)
+	}
+
+	sort.SliceStable(FileTree, func(i, j int) bool {
+		return FileTree[i].fileName < FileTree[j].fileName
+	})
+
+	if len(FileTree) > 0 {
+		FileTree[len(FileTree)-1].isLast = true
+	}
+
+	for _, fileLeaf := range FileTree {
+		var repeatSym = strings.Repeat("│\t", level)
+		if fileLeaf.lastLevel > 0 {
+			repeatSym = strings.Repeat("│\t", fileLeaf.level-fileLeaf.lastLevel) + strings.Repeat("\t", fileLeaf.lastLevel)
+		}
+		var sym = "├───"
+		if fileLeaf.isLast {
+			sym = "└───"
+		}
+		fmt.Fprintln(out, repeatSym+sym+fileLeaf.fileName+fileLeaf.fileSize)
+		if fileLeaf.isDir {
+			lastLavel := fileLeaf.lastLevel
+			if fileLeaf.isLast {
+				lastLavel = fileLeaf.lastLevel + 1
 			}
-			err := scanDir(out, path + "/" +f.Name() , printFiles, level + 1, isLastDir)
-			if err != nil {
-				panic(err.Error())
-			}
+			scanDir(out, path+"/"+fileLeaf.fileName, printFiles, level+1, lastLavel)
 		}
 	}
 
 	return nil
 }
 
-func formatSize(size int64) string {
-	var result = "empty"
+func formatSize(file os.FileInfo) string {
+	if file.IsDir() {
+		return ""
+	}
+	var result = " (empty)"
+	size := file.Size()
 	if size > 0 {
-		result = strconv.FormatInt(size, 10) + "b"
+		result = " (" + strconv.FormatInt(size, 10) + "b)"
 	}
 	return result
 }
-
-func isLast(num int, len int) bool {
-	return num + 1 == len
-}
-
